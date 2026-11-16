@@ -661,14 +661,15 @@ test('快捷标签：持久化走 /annotation-tags，选择标签直接生成带
   assert.match(toggle, /if \(!panel\.isConnected \|\| panel\.__annClosing === true\) return/,
     '展开收尾在已点击收起时失效')
   assert.match(toggle, /panel\.style\.maxWidth = '0px'/, '收起过渡到 0 宽')
-  assert.match(toggle, /setTimeout\(removePanel, 300\)/, '收起动画结束后才从 DOM 移除')
+  assert.match(toggle, /setTimeout\(removePanel, 340\)/, '收起动画结束后才从 DOM 移除')
   assert.match(toggle, /panel\.__annClosing === true[\s\S]*?panel\.style\.maxWidth = resumeWidth \+ 'px'/,
     '收起动画中再点展开会平滑续开')
   assert.match(toggle, /panel\.style\.transition = 'max-width \.24s linear, opacity \.18s linear'/,
     '展开匀速（linear），结尾不减速')
-  assert.match(toggle, /panel\.style\.transition = 'max-width \.22s linear, opacity \.16s linear'/,
-    '收起匀速（linear）')
-  assert.doesNotMatch(toggle, /cubic-bezier/, '过渡不再使用缓出曲线，避免末尾变慢显得卡')
+  assert.match(toggle, /panel\.style\.transition = 'max-width \.24s cubic-bezier\(\.4, 0, \.2, 1\), padding \.24s cubic-bezier\(\.4, 0, \.2, 1\), opacity \.24s linear'/,
+    '收起用缓动曲线收尾，并同步收缩 padding')
+  assert.match(toggle, /panel\.style\.padding = '0px'/, '收起时 padding 一起收到 0（移除面板不跳宽）')
+  assert.match(toggle, /panel\.style\.padding = ''/, '续开时恢复面板 padding')
 
   const renderSrc = sliceBetween('function render()', 'function toggleTagPanel(')
   assert.match(renderSrc, /tagToggle\.addEventListener\('click', activateTagToggle\)/,

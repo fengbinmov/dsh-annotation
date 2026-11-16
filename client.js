@@ -2097,8 +2097,10 @@ window.__ModuleLoader__.load({
             if (panel.__annTimer !== null) { clearTimeout(panel.__annTimer); panel.__annTimer = null }
             var resumeWidth = Math.round(panel.getBoundingClientRect().width)
             panel.style.overflow = 'hidden'
+            panel.style.transition = 'max-width .2s linear, padding .2s linear, opacity .12s linear'
             panel.style.maxWidth = resumeWidth + 'px'
-            panel.style.transition = 'max-width .2s linear, opacity .12s linear'
+            // 收起时 padding 被收到 0，续开要恢复（否则面板内容贴边）。
+            panel.style.padding = ''
             requestAnimationFrame(function () {
               if (!panel.isConnected) return
               panel.style.maxWidth = panel.scrollWidth + 'px'
@@ -2164,9 +2166,11 @@ window.__ModuleLoader__.load({
           if (panel !== null && panel.__annClosing !== true) {
             // 逐渐缩回：先取当前宽度（展开途中点击时就是当前动画进度），再设置
             // 收起过渡与起始值——从该进度直接收缩，不会被展开动画拉回完全体。
+            // 收起用轻微缓出曲线让结尾自然减速；padding 一起收到 0，避免移除
+            // 面板的瞬间工具条宽度再跳一下（收尾卡顿感）。
             panel.__annClosing = true
             var shrinkFrom = Math.round(panel.getBoundingClientRect().width)
-            panel.style.transition = 'max-width .22s linear, opacity .16s linear'
+            panel.style.transition = 'max-width .24s cubic-bezier(.4, 0, .2, 1), padding .24s cubic-bezier(.4, 0, .2, 1), opacity .24s linear'
             panel.style.overflow = 'hidden'
             panel.style.maxWidth = shrinkFrom + 'px'
             var removePanel = function () {
@@ -2176,7 +2180,7 @@ window.__ModuleLoader__.load({
               if (panel.__annTimer !== null) { clearTimeout(panel.__annTimer); panel.__annTimer = null }
               panel.remove()
             }
-            panel.__annTimer = setTimeout(removePanel, 300)
+            panel.__annTimer = setTimeout(removePanel, 340)
             panel.addEventListener('transitionend', function onEnd(ev) {
               if (ev.target !== panel || ev.propertyName !== 'max-width') return
               panel.removeEventListener('transitionend', onEnd)
@@ -2185,6 +2189,7 @@ window.__ModuleLoader__.load({
             requestAnimationFrame(function () {
               if (!panel.isConnected) return
               panel.style.maxWidth = '0px'
+              panel.style.padding = '0px'
               panel.style.opacity = '0'
             })
           }
