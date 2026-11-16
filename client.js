@@ -68,11 +68,11 @@ window.__ModuleLoader__.load({
         '  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, #2c2c2e));',
         '  box-shadow: var(--dsw-shadow-lv3);',
         '  font-family: var(--dsw-font-family, system-ui);',
-        '  animation: dsh-ann-pop .12s var(--ds-ease-in-out, ease); }',
+        '  animation: dsh-ann-fadein .12s ease; }',
         '@keyframes dsh-ann-pop { from { opacity: 0; transform: translateY(3px); }',
         '  to { opacity: 1; transform: none; } }',
         '.dsh-ann-ghost { display: inline-flex; align-items: center; gap: 5px; height: 28px;',
-        '  padding: 0 10px; border: none; border-radius: 14px; background: transparent;',
+        '  padding: 0 2px 0 10px; border: none; border-radius: 14px; background: transparent;',
         '  color: var(--dsw-alias-label-primary); font-family: inherit;',
         '  font-size: 12px; line-height: 18px; cursor: pointer; }',
         '.dsh-ann-ghost:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }',
@@ -81,11 +81,13 @@ window.__ModuleLoader__.load({
         '.dsh-ann-ghost-dim { opacity: .42; }',
         '.dsh-ann-ghost-dim:hover:not(:disabled) { opacity: .68; }',
         '.dsh-ann-ghost svg { width: 14px; height: 14px; }',
-        // 标签入口与「批注」融合成 split：细竖线 + 紧凑图标按钮，负 margin 贴近。
+        // 标签入口与「批注」视觉上紧挨：批注按钮右侧内边距压到 1px，细线两侧
+        // 各收 2px、图标按钮再收 1px，图标左对齐。两者之间仍有约 2px 真实间隙，
+        // 命中区域不重叠（鼠标在交界处不会反复触发 hover）。
         '.dsh-ann-split { flex: none; width: 1px; height: 16px; margin: 0 -2px;',
         '  background: var(--dsw-alias-border-inverted, rgba(255,255,255,.18)); }',
         '.dsh-ann-tag-toggle { display: inline-flex; align-items: center; justify-content: center;',
-        '  flex: none; width: 26px; height: 28px; padding: 0; margin-left: -5px;',
+        '  flex: none; width: 26px; height: 28px; padding: 0; margin-left: -1px;',
         '  border: none; border-radius: 13px;',
         '  background: transparent; color: var(--dsw-alias-label-secondary, #b6b8bc); cursor: pointer; }',
         '.dsh-ann-tag-toggle:hover, .dsh-ann-tag-toggle[aria-expanded="true"] {',
@@ -149,7 +151,7 @@ window.__ModuleLoader__.load({
         '  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, #2c2c2e));',
         '  box-shadow: var(--dsw-shadow-lv3);',
         '  font-family: var(--dsw-font-family, system-ui);',
-        '  animation: dsh-ann-pop .12s var(--ds-ease-in-out, ease); }',
+        '  animation: dsh-ann-fadein .12s ease; }',
         '.dsh-ann-card-head { display: flex; align-items: center; justify-content: space-between;',
         '  margin-bottom: 8px; cursor: move; touch-action: none; user-select: none; }',
         '.dsh-ann-card-title { font-size: 13px; font-weight: 600;',
@@ -1187,7 +1189,16 @@ window.__ModuleLoader__.load({
       var DEFAULT_TAGS = ['Yes', 'No']
       var annotationTags = DEFAULT_TAGS.slice()
       var tagPanelOpen = false
+      // 标签面板的展开来源：hover 自动展开（未锁定，鼠标移出工具条自动收回）
+      // vs 点击展开（锁定，需要手动关闭）。
+      var tagHoverTimer = null
+      var tagPanelHoverOpened = false
+      var tagPanelLocked = false
       var tagBusy = false
+
+      function clearTagHoverTimer() {
+        if (tagHoverTimer !== null) { clearTimeout(tagHoverTimer); tagHoverTimer = null }
+      }
 
       function applyTags(list) {
         if (!Array.isArray(list)) return
@@ -1653,6 +1664,8 @@ window.__ModuleLoader__.load({
       }
 
       function render() {
+        // 工具条重建时旧按钮的 hover 计时器必须失效，避免稍后展开新工具条的面板。
+        clearTagHoverTimer()
         host.textContent = ''
         ui.el = null
         if (ui.mode === 'actions') {
@@ -1686,6 +1699,14 @@ window.__ModuleLoader__.load({
           // 面板处于展开态时进入 actions（例如重建）：批注按钮保持压暗。
           if (tagPanelOpen) annotateBtn.classList.add('dsh-ann-ghost-dim')
           bar.appendChild(annotateBtn)
+          // 鼠标移到「+ 批注」按钮上也收起 hover 展开的面板（点击展开的锁定面板不收）。
+          annotateBtn.addEventListener('mouseenter', function () {
+            // 只有 hover 展开、未锁定时才在这里收起；未展开时不要清掉标签按钮的
+            // hover 计时（两者紧邻，指针掠过时不应相互打断）。
+            if (!tagPanelOpen || !tagPanelHoverOpened || tagPanelLocked) return
+            clearTagHoverTimer()
+            toggleTagPanel(false)
+          })
           // 标签入口：细线分隔 + 紧凑图标按钮，点击展开/收起浮岛标签。
           var split = document.createElement('span')
           split.className = 'dsh-ann-split'
@@ -1702,8 +1723,9 @@ window.__ModuleLoader__.load({
           tagToggle.setAttribute('aria-expanded', tagPanelOpen ? 'true' : 'false')
           tagToggle.appendChild(ICONS.tag())
           function activateTagToggle() {
+            clearTagHoverTimer()
             ignoreUntil = Date.now() + 80
-            toggleTagPanel()
+            toggleTagPanel(true)
           }
           tagToggle.addEventListener('click', activateTagToggle)
           tagToggle.addEventListener('keydown', function (e) {
@@ -1711,8 +1733,25 @@ window.__ModuleLoader__.load({
             e.preventDefault()
             activateTagToggle()
           })
+          // hover 118ms 自动展开（不锁定）；点击展开则锁定、鼠标移出也不收回。
+          tagToggle.addEventListener('mouseenter', function () {
+            clearTagHoverTimer()
+            if (tagPanelOpen) return
+            tagHoverTimer = setTimeout(function () {
+              tagHoverTimer = null
+              if (tagPanelOpen || ui.mode !== 'actions') return
+              toggleTagPanel(false)
+            }, 118)
+          })
+          tagToggle.addEventListener('mouseleave', clearTagHoverTimer)
           bar.appendChild(tagToggle)
           if (tagPanelOpen) bar.appendChild(tagPanel())
+          // 鼠标离开整条工具条（含展开的面板）：hover 自动展开的面板收回；
+          // 点击展开（锁定）的不收，需要用户手动关闭。
+          bar.addEventListener('mouseleave', function () {
+            clearTagHoverTimer()
+            if (tagPanelOpen && tagPanelHoverOpened && !tagPanelLocked) toggleTagPanel(false)
+          })
           host.appendChild(bar)
           ui.el = bar
           if (tagPanelOpen) {
@@ -2018,15 +2057,34 @@ window.__ModuleLoader__.load({
 
       /** 展开/收起标签面板：只增删面板本身，不重建整条工具条——重建会把
        *  「批注」按钮连同 bar 一起换掉，视觉上闪一下。 */
-      function toggleTagPanel() {
+      function toggleTagPanel(manual) {
+        var clicked = manual !== false
         tagPanelOpen = !tagPanelOpen
-        // 点过「标签」按钮后预览高亮保持（展开、收起都显示），与编辑浮窗一致。
-        ui.previewArmed = true
+        clearTagHoverTimer()
+        if (tagPanelOpen) {
+          if (clicked) {
+            // 点击展开：锁定，鼠标移出工具条也不自动收回，需要手动关闭。
+            tagPanelLocked = true
+            tagPanelHoverOpened = false
+          } else {
+            // hover 自动展开：不锁定，鼠标移出整个工具条时自动收回。
+            tagPanelLocked = false
+            tagPanelHoverOpened = true
+          }
+        } else {
+          tagPanelLocked = false
+          tagPanelHoverOpened = false
+        }
+        // 点过「标签」按钮后预览高亮保持（展开、收起都显示），与编辑浮窗一致；
+        // hover 自动展开不改变预览状态（预览仍以点击为准）。
+        if (clicked) ui.previewArmed = true
         paintPreviewHighlight()
-        // 点击工具条按钮会短暂清掉选区/触发 selectionchange：先取消挂起的 settle
-        // 并延长忽略窗口，避免刚展开的面板立即被重建（工具条闪走/面板消失）。
-        clearSettle()
-        ignoreUntil = Date.now() + 200
+        if (clicked) {
+          // 点击工具条按钮会短暂清掉选区/触发 selectionchange：先取消挂起的 settle
+          // 并延长忽略窗口，避免刚展开的面板立即被重建（工具条闪走/面板消失）。
+          clearSettle()
+          ignoreUntil = Date.now() + 200
+        }
         var bar = ui.el
         if (bar === null || bar === undefined) {
           render()
@@ -2082,7 +2140,8 @@ window.__ModuleLoader__.load({
               })
               // 展开完成后放开宽度与裁剪：hover 删除叉可以溢出到面板外。
               var settle = function () {
-                if (!panel.isConnected) return
+                // 展开途中已经被点击收起：不要再用展开的收尾覆盖收起的起始宽度。
+                if (!panel.isConnected || panel.__annClosing === true) return
                 panel.style.maxWidth = 'none'
                 panel.style.overflow = 'visible'
                 panel.style.transition = 'none'
@@ -2106,12 +2165,13 @@ window.__ModuleLoader__.load({
           })
         } else {
           if (panel !== null && panel.__annClosing !== true) {
-            // 逐渐缩回：先把当前宽度固定住，再 transition 到 0 宽/透明，
-            // 动画结束才从 DOM 移除；期间再点展开会取消收起、平滑续开。
+            // 逐渐缩回：先取当前宽度（展开途中点击时就是当前动画进度），再设置
+            // 收起过渡与起始值——从该进度直接收缩，不会被展开动画拉回完全体。
             panel.__annClosing = true
-            panel.style.overflow = 'hidden'
-            panel.style.maxWidth = Math.round(panel.getBoundingClientRect().width) + 'px'
+            var shrinkFrom = Math.round(panel.getBoundingClientRect().width)
             panel.style.transition = 'max-width .22s linear, opacity .16s linear'
+            panel.style.overflow = 'hidden'
+            panel.style.maxWidth = shrinkFrom + 'px'
             var removePanel = function () {
               // 收起途中又被展开时（__annClosing 已被复位），这里的旧回调必须失效。
               if (panel.__annClosing !== true) return
@@ -2140,10 +2200,17 @@ window.__ModuleLoader__.load({
       /** 把整条工具条钳回视口内（展开标签/页面缩放后调用）。 */
       function clampBarToViewport(bar) {
         var left = Math.max(8, Math.min(ui.pos.left, window.innerWidth - bar.offsetWidth - 8))
-        if (left !== ui.pos.left) {
-          ui.pos.left = left
-          bar.style.left = left + 'px'
-        }
+        if (left === ui.pos.left) return
+        ui.pos.left = left
+        // 展开/收起面板导致宽度变化时，工具条可能被钳回视口内：用短过渡平滑滑过去，
+        // 避免「瞬间跳一下」被用户感知成抖动（滚动跟随不经过这里，不会有延迟）。
+        bar.style.transition = 'left .14s var(--ds-ease-in-out, ease)'
+        bar.style.left = left + 'px'
+        clearTimeout(bar.__annClampTimer)
+        bar.__annClampTimer = setTimeout(function () {
+          if (!bar.isConnected) return
+          bar.style.transition = ''
+        }, 180)
       }
 
       /** 标签持久化数据变化时只重填面板内容，不重建工具条。 */
@@ -3215,6 +3282,9 @@ window.__ModuleLoader__.load({
 
       function closeToolbar() {
         tagPanelOpen = false
+        clearTagHoverTimer()
+        tagPanelLocked = false
+        tagPanelHoverOpened = false
         if (ui.mode === 'closed') return
         clearSettle()
         ui.mode = 'closed'
