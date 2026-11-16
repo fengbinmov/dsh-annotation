@@ -560,8 +560,10 @@ test('新增批注预览高亮：点过「批注/标签」才出现、收起标�
   assert.match(close, /ui\.selectionRange = null/, '关闭后不残留上一次的选区 Range')
   assert.match(close, /ui\.previewArmed = false/, '关闭工具条时复位预览开关')
   assert.match(close, /paintPreviewHighlight\(\)/, '放弃本次批注时撤销预览高亮')
+  assert.match(close, /clearTagHoverTimer\(\)/, '关闭工具条时清理 hover 计时器')
+  assert.match(close, /tagPanelLocked = false/, '关闭工具条时复位面板锁定状态')
 
-  const toggle = sliceBetween('function toggleTagPanel()', 'function clampBarToViewport(')
+  const toggle = sliceBetween('function toggleTagPanel(manual)', 'function clampBarToViewport(')
   assert.match(toggle, /ui\.previewArmed = true/, '点「标签」后打开预览')
   assert.match(toggle, /paintPreviewHighlight\(\)/, '展开/收起标签面板时同步预览（收起也保持）')
 
@@ -628,8 +630,11 @@ test('快捷标签：持久化走 /annotation-tags，选择标签直接生成带
   assert.match(source, /tagToggle\.setAttribute\('role', 'button'\)/, '标签入口保留 role=button 可访问语义')
   assert.match(source, /\.dsh-ann-split \{/, '标签入口与「批注」之间用细线分隔、视觉上融合')
   assert.match(source, /ICONS\.tag\(\)/, '标签入口使用 tag 图标')
-  assert.match(source, /margin: 0 -2px/, '细线两侧用负 margin 吃掉 bar 的 gap，图标贴近「批注」')
-  assert.match(source, /margin-left: -5px/, '图标按钮再向「批注」靠拢')
+  assert.match(source, /\.dsh-ann-split \{ flex: none; width: 1px; height: 16px; margin: 0 -2px;/,
+    '细线两侧各收 2px，视觉贴合')
+  // .dsh-ann-ghost / .dsh-ann-tag-toggle 的 padding、对齐方式由用户手动调，测试不锁具体值；
+  // 只由 tags-browser 断言「两个按钮不重叠」。
+  assert.doesNotMatch(source, /margin-left: -5px/, '不再使用会造成命中区域重叠的 -5px')
   assert.doesNotMatch(source, /@keyframes dsh-ann-tags-reveal/, '展开不再用一次性滑入动画')
   assert.doesNotMatch(source, /@keyframes dsh-ann-tag-in/, '浮岛内容不再逐个动画（用户要求去掉）')
   assert.match(source, /panel\.style\.maxWidth = '0px'/, '展开从 0 宽开始')
@@ -643,11 +648,18 @@ test('快捷标签：持久化走 /annotation-tags，选择标签直接生成带
 
   const toggle = sliceBetween('function toggleTagPanel(', 'function refreshTagPanel(')
   assert.match(toggle, /tagPanelOpen = !tagPanelOpen/, '点击标签图标切换展开状态')
+  assert.match(toggle, /tagPanelLocked = true/, '点击展开后锁定（鼠标移出不自动收回）')
+  assert.match(toggle, /tagPanelHoverOpened = true/, 'hover 展开标记为可自动收回')
+  assert.match(toggle, /clearTagHoverTimer\(\)/, '展开/收起时清理 hover 计时器')
   assert.match(toggle, /bar\.querySelector\('\.dsh-ann-tag-toggle'\)/, '直接操作现有工具条上的标签按钮')
   assert.match(toggle, /bar\.appendChild\(panel\)/, '展开只插入面板（不整条重建）')
   assert.match(toggle, /panel\.__annClosing = true/, '收起先进入 closing 状态')
-  assert.match(toggle, /panel\.style\.maxWidth = Math\.round\(panel\.getBoundingClientRect\(\)\.width\) \+ 'px'/,
-    '收起从当前宽度开始过渡')
+  assert.match(toggle, /var shrinkFrom = Math\.round\(panel\.getBoundingClientRect\(\)\.width\)/,
+    '收起前先取当前展开进度宽度')
+  assert.match(toggle, /panel\.style\.maxWidth = shrinkFrom \+ 'px'/,
+    '从当前进度直接开始收缩（不回跳完全体）')
+  assert.match(toggle, /if \(!panel\.isConnected \|\| panel\.__annClosing === true\) return/,
+    '展开收尾在已点击收起时失效')
   assert.match(toggle, /panel\.style\.maxWidth = '0px'/, '收起过渡到 0 宽')
   assert.match(toggle, /setTimeout\(removePanel, 300\)/, '收起动画结束后才从 DOM 移除')
   assert.match(toggle, /panel\.__annClosing === true[\s\S]*?panel\.style\.maxWidth = resumeWidth \+ 'px'/,
@@ -661,8 +673,18 @@ test('快捷标签：持久化走 /annotation-tags，选择标签直接生成带
   const renderSrc = sliceBetween('function render()', 'function toggleTagPanel(')
   assert.match(renderSrc, /tagToggle\.addEventListener\('click', activateTagToggle\)/,
     '点击标签图标走局部展开，不触发整条 render（否则批注按钮会闪）')
-  assert.match(renderSrc, /function activateTagToggle\(\) \{[\s\S]*?toggleTagPanel\(\)/,
-    '点击/键盘激活都切到 toggleTagPanel')
+  assert.match(renderSrc, /function activateTagToggle\(\) \{[\s\S]*?toggleTagPanel\(true\)/,
+    '点击/键盘激活都按「点击」展开（锁定）')
+  assert.match(renderSrc, /tagToggle\.addEventListener\('mouseenter'/, '鼠标悬浮标签按钮开始计时')
+  assert.match(renderSrc, /setTimeout\(function \(\) \{[\s\S]*?\}, 118\)/,
+    '悬浮超过 0.118s 自动展开')
+  assert.match(renderSrc, /toggleTagPanel\(false\)/, 'hover 展开走非锁定路径')
+  assert.match(renderSrc, /annotateBtn\.addEventListener\('mouseenter'/, '鼠标移到「+ 批注」按钮也收起 hover 面板')
+  assert.match(renderSrc, /if \(!tagPanelOpen \|\| !tagPanelHoverOpened \|\| tagPanelLocked\) return/,
+    '批注按钮只在 hover 展开时收起面板（不打断标签按钮的 hover 计时）')
+  assert.match(renderSrc, /bar\.addEventListener\('mouseleave'/, '鼠标离开整条工具条时处理自动收回')
+  assert.match(renderSrc, /if \(tagPanelOpen && tagPanelHoverOpened && !tagPanelLocked\) toggleTagPanel\(false\)/,
+    '只有 hover 展开且未锁定时才自动收回')
 
   const refresh = sliceBetween('function refreshTagPanel(', '/** 工具条内向右展开的标签面板')
   assert.match(refresh, /replaceChild\(tagPanel\(\), old\)/, '标签数据变化只重填面板内容')

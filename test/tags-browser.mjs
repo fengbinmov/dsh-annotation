@@ -56,6 +56,48 @@ try {
   assert.equal(await tagToggle.getAttribute('role'), 'button', '标签入口是 role=button 的自定义控件')
   assert.equal(await tagToggle.getAttribute('aria-label'), '标签', '标签入口保留可访问名称')
   assert.equal(await page.locator('.dsh-ann-tag-toggle svg').count(), 1, '标签入口是紧凑图标按钮（不再是文字按钮）')
+  const toggleGap = await page.evaluate(() => {
+    const annotate = document.querySelector('.dsh-ann-ghost').getBoundingClientRect()
+    const toggle = document.querySelector('.dsh-ann-tag-toggle').getBoundingClientRect()
+    return Math.round(toggle.left - annotate.right)
+  })
+  assert.ok(toggleGap >= 0 && toggleGap <= 3, '「批注」与「标签」按钮紧凑但不重叠（鼠标不会在交界处来回触发 hover）')
+  const iconGap = await page.evaluate(() => {
+    const annotate = document.querySelector('.dsh-ann-ghost')
+    const icon = document.querySelector('.dsh-ann-tag-toggle svg')
+    const walker = document.createTreeWalker(annotate, NodeFilter.SHOW_TEXT, null)
+    let last = null
+    while (walker.nextNode()) { if (walker.currentNode.nodeValue.trim() !== '') last = walker.currentNode }
+    const range = document.createRange()
+    range.selectNodeContents(last)
+    return Math.round(icon.getBoundingClientRect().left - range.getBoundingClientRect().right)
+  })
+  assert.ok(iconGap <= 10, '标签图标与「批注」文字保持紧凑（视觉间距 <= 10px，具体样式由用户手动调）')
+
+  // hover 0.618s 自动展开；鼠标离开整条工具条后自动收回（未点击锁定）
+  await tagToggle.hover()
+  await page.waitForFunction(() => document.querySelector('.dsh-ann-tags') !== null, null, { timeout: 2000 })
+  assert.equal(await page.locator('.dsh-ann-tags').count(), 1, '悬浮「标签」按钮 0.618s 后自动展开')
+  assert.equal(await page.locator('.dsh-ann-hl-preview:visible').count(), 0, 'hover 展开不触发预览（仍以点击为准）')
+  await page.mouse.move(5, 5)
+  await page.waitForFunction(() => document.querySelector('.dsh-ann-tags') === null, null, { timeout: 2000 })
+  assert.equal(await page.locator('.dsh-ann-tags').count(), 0, '鼠标离开工具条后 hover 展开的面板自动收回')
+  // 点击展开是锁定的：鼠标移出工具条也不会收回，需要手动关闭
+  await tagToggle.click()
+  await page.locator('.dsh-ann-tags').waitFor()
+  await page.mouse.move(5, 5)
+  await page.waitForTimeout(450)
+  assert.equal(await page.locator('.dsh-ann-tags').count(), 1, '点击展开的面板不会被鼠标移出自动收回')
+  await tagToggle.click()
+  await page.waitForTimeout(400)
+  assert.equal(await page.locator('.dsh-ann-tags').count(), 0, '点击关闭后面板收起')
+
+  // hover 展开后鼠标移到「+ 批注」按钮上也会自动收起
+  await tagToggle.hover()
+  await page.waitForFunction(() => document.querySelector('.dsh-ann-tags') !== null, null, { timeout: 2000 })
+  await page.locator('.dsh-ann-ghost').hover()
+  await page.waitForFunction(() => document.querySelector('.dsh-ann-tags') === null, null, { timeout: 2000 })
+  assert.equal(await page.locator('.dsh-ann-tags').count(), 0, '鼠标移到「+ 批注」按钮上时 hover 面板自动收起')
 
   // 展开：默认 Yes / No 浮岛 + 末尾「+」；只增删面板，不重建整条工具条（批注按钮不闪）
   await page.evaluate(() => { window.__barBefore = document.querySelector('.dsh-ann-bar') })
