@@ -1,3 +1,4 @@
+// 只允许对话正文批注：文件预览（侧边栏/右侧面板）里的正文与标题都不再接批注。
 // Run with PLAYWRIGHT_MODULE pointing to an existing Playwright installation.
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +14,7 @@ try {
     <div data-chat-flow-kind="assistant-step"><p id="chat">重复的原文</p></div>
     <section data-textpreview-url="dsh-resource://file/session/session/docs/a.md">
       <div data-textpreview-path title="/workspace/docs/a.md">a.md</div>
-      <div data-textpreview-body><div data-document-markdown><p id="quote">重复的原文</p></div></div>
+      <div data-textpreview-body><div data-document-markdown><p id="file-quote">重复的原文</p></div></div>
     </section>
     <div data-composer-card><div data-composer-input contenteditable="true">请检查</div></div>` }))
   await page.goto('http://annotation.test/')
@@ -29,7 +30,7 @@ try {
       }, conversation: { input: { for: () => ({ state: { getSnapshot: () => ({ draft: window.draft }), subscribe: () => () => {} }, setDraft: value => { window.draft = value } }) } } })
     })
   }
-  const select = async (selector = '#quote') => {
+  const select = async (selector) => {
     await page.waitForTimeout(100)
     await page.evaluate(selector => {
       const range = document.createRange()
@@ -37,70 +38,26 @@ try {
       getSelection().removeAllRanges(); getSelection().addRange(range)
     }, selector)
   }
-  const add = async () => {
-    await select()
-    await page.locator('.dsh-ann-bar button').click()
-    assert.match(await page.locator('.dsh-ann-quote').getAttribute('title'), /^\[docs\//)
-    await page.locator('.dsh-ann-input').fill('解释这个文件')
-    await page.locator('.dsh-ann-action').click()
-    await page.waitForTimeout(100)
-  }
-  const records = () => page.evaluate(() => JSON.parse(localStorage.getItem('dsh.annotation.pending.v1.session')))
   await boot()
-  await add()
-  assert.equal((await records())[0].sourcePath, 'docs/a.md')
-  await page.evaluate(() => {
-    const body = document.querySelector('[data-textpreview-body]')
-    body.style.cssText = 'height:30px;overflow:auto'
-    document.querySelector('[data-document-markdown]').style.height = '300px'
-    body.scrollTop = 200
-  })
-  // 标记层改为元素池后，滚出预览区的标记是 display:none（不再从 DOM 移除），
-  // 行为断言仍是「滚出预览区域的内容不在外面显示标记」：统计真正渲染的标记。
-  await page.waitForFunction(() => [...document.querySelectorAll('.dsh-ann-num')]
-    .every(el => el.getClientRects().length === 0))
-  assert.equal(await page.locator('.dsh-ann-num:visible').count(), 0, '滚出预览区域的内容不在外面显示标记')
-  await page.evaluate(() => { document.querySelector('[data-textpreview-body]').scrollTop = 0 })
-  await page.waitForTimeout(150)
-  assert.equal(await page.locator('.dsh-ann-num:visible').count(), 1)
 
-  await page.evaluate(() => document.querySelector('[data-textpreview-url]').setAttribute('data-textpreview-url', 'dsh-resource://file/session/session/docs/b.md'))
-  await page.waitForTimeout(150)
-  assert.equal(await page.locator('.dsh-ann-num:visible').count(), 0, '相同文本的新文件不继承旧标记')
-  await add()
-  assert.equal((await records()).length, 2, '同文不同文件分别保存')
-  await page.reload()
-  await boot()
-  await page.locator('.dsh-ann-num').waitFor()
-  assert.equal(await page.locator('.dsh-ann-num').textContent(), '1', '重载仅标记当前文件')
-  const marker = await page.locator('.dsh-ann-num').boundingBox()
-  assert.ok(marker.x > 450, '不会误标聊天中的同文')
-  await page.locator('.dsh-ann-num').click()
-  assert.equal(await page.locator('.dsh-ann-input').inputValue(), '解释这个文件')
-  await page.locator('.dsh-ann-card-head .dsh-ann-icon').click()
-  await page.locator('[data-composer-input]').press('Enter')
-  const draft = await page.evaluate(() => window.draft)
-  assert.ok(draft.includes('[docs/a.md]') && draft.includes('[docs/b.md]'), '两份文件路径都随原文拼稿')
-  for (const attr of ['data-textpreview-plain', 'data-code-preview']) {
-    await page.evaluate(attr => {
-      document.querySelector('[data-textpreview-body]').innerHTML = `<div ${attr}><pre id="quote">重复的原文</pre></div>`
-      document.querySelector('[data-textpreview-url]').setAttribute('data-textpreview-url', `dsh-resource://file/session/session/docs/${attr}.txt`)
-    }, attr)
-    await add()
-  }
-  assert.equal((await records()).length, 4, '文本、Markdown、代码选区均保存')
-  await page.evaluate(() => document.querySelector('[data-textpreview-url]').setAttribute('data-textpreview-url', 'dsh-resource://file/session/other/docs/a.md'))
-  await select()
-  await page.waitForTimeout(350)
-  assert.equal(await page.locator('.dsh-ann-bar').count(), 0, '拒绝其他会话的文件')
-  await page.evaluate(() => document.querySelector('[data-textpreview-url]').setAttribute('data-textpreview-url', 'dsh-resource://file/session/session/docs/%ZZ.md'))
-  await select()
-  await page.waitForTimeout(350)
-  assert.equal(await page.locator('.dsh-ann-bar').count(), 0, '拒绝畸形文件地址')
+  // 文件预览正文：不再弹出批注工具条
+  await select('#file-quote')
+  await page.waitForTimeout(600)
+  assert.equal(await page.locator('.dsh-ann-bar').count(), 0, '文件预览正文不再接收批注')
+  assert.equal(await page.evaluate(() => localStorage.getItem('dsh.annotation.pending.v1.session')), null,
+    '文件预览选区不产生待发送批注')
+
+  // 文件标题：同样不是可批注正文
   await select('[data-textpreview-path]')
-  await page.waitForTimeout(350)
+  await page.waitForTimeout(600)
   assert.equal(await page.locator('.dsh-ann-bar').count(), 0, '文件标题不是可批注正文')
+
+  // 对话正文仍然正常
+  await select('#chat')
+  await page.waitForTimeout(600)
+  assert.equal(await page.locator('.dsh-ann-bar').count(), 1, '对话正文仍可批注')
+
   await page.evaluate(() => window.dispose())
   assert.deepEqual(errors, [])
-  console.log('PASS: 三种正文选区、来源路径、同文不同文件、切文件、刷新恢复、编辑、拼稿、会话隔离、畸形地址和标题排除')
+  console.log('PASS: 文件预览正文/标题不再接收批注，对话正文仍正常')
 } finally { await browser.close() }

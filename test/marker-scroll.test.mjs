@@ -425,27 +425,16 @@ test('编号 hover 提示：显示批注内容前 10 个字符，标签批注不
   assert.equal(chips[0].title, '')
 })
 
-test('文件批注：缓存命中前校验来源文件，切文件后旧标记不再继承', () => {
-  const h = makeHarness()
-  const q = h.newQuote('alpha', 120)
-  q.sourceUrl = 'dsh-resource://file/session/session/docs/a.md'
-  q.sourcePath = 'docs/a.md'
-  h.setQuotes([q])
-  const source = (url) => () => ({ sourceUrl: url, sourcePath: 'docs/x.md', root: { getClientRects: () => [1] } })
-  h.setDocumentSource(source(q.sourceUrl))
-  h.render()
-  assert.equal(h.locateCalls(), 1)
-
-  h.scrollBy(-10)
-  h.render()
-  assert.equal(h.locateCalls(), 1, '来源文件未变时缓存继续命中，不重复慢路径')
-
-  // 宿主只改了 data-textpreview-url（文本节点未重建）：Range 仍 alive，但来源已不匹配。
-  h.setDocumentSource(source('dsh-resource://file/session/session/docs/b.md'))
-  h.setLocateOverride(null) // 慢路径在 b.md 里定位不到原文
-  h.render()
-  assert.equal(h.locateCalls(), 2, 'sourceUrl 不匹配时必须退回慢路径重新定位')
-  assert.equal(h.numLayer.children[0].style.display, 'none', '旧文件批注不得继承到新文件')
+test('只允许对话正文批注：文件来源不再定位/渲染', () => {
+  const locate = sliceBetween('function locateQuote(', 'function truncate(')
+  assert.match(locate, /if \(saved && saved\.sourceUrl\) return null/,
+    '文件来源批注直接视为定位失败（不扫描文件预览正文）')
+  const root = sliceBetween('function annotationRootOf(', 'function quoteRects(')
+  assert.match(root, /if \(documentSourceOf\(node\) !== null\) return null/,
+    '文件预览里的选区不接收批注（只允许对话正文）')
+  const parse = sliceBetween('function parsePendingQuotes(', 'function stringifyPendingQuotes(')
+  assert.match(parse, /!\(typeof q\.sourceUrl === 'string' && q\.sourceUrl !== ''\)/,
+    '历史数据里的文件批注读取时直接丢弃')
 })
 
 // ---------- 源码结构守卫（旧实现会在这些断言上失败） ----------

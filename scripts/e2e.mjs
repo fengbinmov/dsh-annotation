@@ -209,21 +209,12 @@ try {
       range.selectNodeContents(el)
       getSelection().removeAllRanges(); getSelection().addRange(range)
     })
-    await page.locator('.dsh-ann-bar button').click()
-    if (!(await page.locator('.dsh-ann-quote').getAttribute('title')).includes('README.zh-CN.md')) fail('编辑器未显示文件路径')
-    await page.locator('.dsh-ann-input').fill('请解释这个文件段落')
-    await page.locator('.dsh-ann-action').click()
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.locator('[data-annotation-chip]').waitFor({ state: 'visible' })
-    await dismissCredentials()
-    // The host closes sidebar tabs on reload; reopen the same file through its UI.
-    await openFile()
-    await page.locator('.dsh-ann-num').waitFor({ state: 'visible' })
-    await page.locator('.dsh-ann-num').click()
-    if (await page.locator('.dsh-ann-input').inputValue() !== '请解释这个文件段落') fail('文件批注刷新恢复失败')
-    await page.locator('.dsh-ann-card-head > .dsh-ann-icon').click()
+    // 只允许对话正文批注：文件预览里的正文不应再弹出批注工具条。
+    await page.waitForTimeout(600)
+    if (await page.locator('.dsh-ann-bar').count() !== 0) fail('文件预览正文不应再弹出批注工具条')
+    await paragraph.evaluate(() => { getSelection().removeAllRanges() })
     if (pageErrors.length > 0) fail(`侧边栏异常: ${pageErrors.join(' | ')}`)
-    console.log('PASS 真实侧边栏打开工作区文件、选区、来源路径、保存、刷新后重新打开定位、重新编辑')
+    console.log('PASS 真实侧边栏打开工作区文件：文件预览正文不再接收批注（只允许对话正文）')
   }
 
   if (LIVE) {

@@ -541,8 +541,9 @@ window.__ModuleLoader__.load({
     }
 
     function annotationRootOf(node) {
-      var source = documentSourceOf(node)
-      return source !== null ? source.root : assistantRowOf(node)
+      // 只允许对话正文批注：文件预览（侧边栏/右侧面板）的正文一律不接收。
+      if (documentSourceOf(node) !== null) return null
+      return assistantRowOf(node)
     }
 
     function quoteRects(range, saved) {
@@ -821,24 +822,9 @@ window.__ModuleLoader__.load({
      *  ⑥ [data-chat-flow] 全文兜底
      *  找到即返回；seqKey 分支内定位失败会终止（不跨消息模糊搜索，v1.3.6 纪律）。 */
     function locateQuote(quote, saved) {
-      if (saved && saved.sourceUrl) {
-        var bodies = document.querySelectorAll(DOCUMENT_TEXT)
-        for (var d = 0; d < bodies.length; d++) {
-          var source = documentSourceOf(bodies[d])
-          if (source === null || source.sourceUrl !== saved.sourceUrl || bodies[d].getClientRects().length === 0) continue
-          if (saved.range && bodies[d].contains(saved.range.commonAncestorContainer)
-            && saved.range.toString().trim() === quote) return saved.range
-          if (saved.textOffset >= 0) {
-            var exact = rangeFromOffset(bodies[d], saved.textOffset, quote.length)
-            if (exact !== null && exact.toString() === quote) return exact
-          }
-          // 文件变化后只接受唯一匹配，避免标记重复代码中的另一处。
-          var text = bodies[d].textContent || ''
-          var at = text.indexOf(quote)
-          if (at >= 0 && text.indexOf(quote, at + 1) === -1) return rangeFromOffset(bodies[d], at, quote.length)
-        }
-        return null
-      }
+      // 文件批注已不再支持：历史数据里的文件批注直接视为定位失败，
+      // 搜索范围只保留对话正文，绝不扫描文件预览/侧边栏正文。
+      if (saved && saved.sourceUrl) return null
       if (saved !== undefined && saved !== null && saved.range && saved.range.startContainer) {
         try {
           if (saved.range.startContainer.isConnected && saved.range.endContainer.isConnected) {
@@ -1027,6 +1013,8 @@ window.__ModuleLoader__.load({
         return value.filter(function (q) {
           return q !== null && typeof q === 'object'
             && typeof q.id === 'string' && typeof q.text === 'string' && q.text !== ''
+            // 只允许对话正文批注：历史数据里的文件批注直接丢弃（不再渲染/发送）。
+            && !(typeof q.sourceUrl === 'string' && q.sourceUrl !== '')
         }).map(function (q) {
           return {
             id: q.id,
